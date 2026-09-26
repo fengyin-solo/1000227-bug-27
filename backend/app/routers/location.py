@@ -16,18 +16,41 @@ LIST_FIELDS = ["场地编号", "场地名称", "场地类型", "所属区域", "
 STATUSES = ["待洽谈", "已签约", "使用中", "已退场"]
 
 
+def _scope_filters(code: str | None, name: str | None, category: str | None) -> dict[str, str]:
+    """把查询参数整理成服务层认识的筛选条件，空白条件直接丢弃。"""
+    raw = {"场地编号": code, "场地名称": name, "场地类型": category}
+    return {field: value.strip() for field, value in raw.items() if value and value.strip()}
+
+
 @router.get("", response_model=PageResult[dict])
 def list_entries(
-    keyword: str | None = Query(default=None, description="按场地编号检索"),
+    code: str | None = Query(default=None, alias="场地编号", description="按场地编号模糊检索"),
+    name: str | None = Query(default=None, alias="场地名称", description="按场地名称模糊检索"),
+    category: str | None = Query(default=None, alias="场地类型", description="按场地类型模糊检索"),
     status: str | None = Query(default=None, description="待洽谈、已签约、使用中、已退场"),
     page: int = 1,
     size: int = 20,
 ) -> PageResult[dict]:
-    """按场地编号与状态过滤场地租用列表；没有数据时返回空页，不报错。"""
+    """按场地编号、场地名称、场地类型与状态过滤场地租用列表；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
+    filters = _scope_filters(code, name, category)
+    items, total = service.list_entries(filters=filters, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/export")
+def export_entries(
+    code: str | None = Query(default=None, alias="场地编号", description="按场地编号模糊检索"),
+    name: str | None = Query(default=None, alias="场地名称", description="按场地名称模糊检索"),
+    category: str | None = Query(default=None, alias="场地类型", description="按场地类型模糊检索"),
+    status: str | None = Query(default=None, description="待洽谈、已签约、使用中、已退场"),
+) -> dict[str, Any]:
+    """导出场地租用清单：与列表页共用同一筛选范围，并在结果里回显生效的筛选条件。"""
+    filters = _scope_filters(code, name, category)
+    items, total = service.export_entries(filters=filters, status=status)
+    scope: dict[str, Any] = {"filters": filters, "status": status}
+    return {"module": "location", "total": total, "scope": scope, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +79,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出场地租用清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "location", "total": total, "items": items}

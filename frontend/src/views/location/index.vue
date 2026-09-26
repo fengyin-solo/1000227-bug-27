@@ -81,13 +81,25 @@ const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 
+function filterQuery() {
+  const params = new URLSearchParams()
+  for (const [field, value] of Object.entries(filters.value)) {
+    const trimmed = value?.trim()
+    if (trimmed) {
+      params.set(field, trimmed)
+    }
+  }
+  return params.toString()
+}
+
 function resetFilters() {
   filters.value = {}
   void reload()
 }
 
 function exportRows() {
-  window.open(`${ENDPOINT}/export`, '_blank')
+  const query = filterQuery()
+  window.open(`${ENDPOINT}/export${query ? `?${query}` : ''}`, '_blank')
 }
 
 function openCreate() {
@@ -112,7 +124,7 @@ async function runAction(action: string, row: Row) {
 
 async function reload() {
   errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
+  const query = filterQuery()
   try {
     const response = await request(`${ENDPOINT}?${query}`)
     if (!response.ok) {
